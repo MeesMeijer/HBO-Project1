@@ -12,10 +12,9 @@ enum Dir
     achteruit = LOW
 };
 
-enum States{
+enum GameStates{
     WAITING = 2,
     VALS = 3,
-    EIND = 4,
     STARTING = 5,
     LOADING = 6, 
     RESET = 7,
@@ -44,6 +43,7 @@ struct ResetBtn{
     {
         this->lastPress = 0;
         this->pressed = false;
+        this->lastState = false; 
     }
 };
 
@@ -158,7 +158,6 @@ struct LDRSensor
         int value = analogRead(this->pin);
 
         if (value > this->treshold){            
-            this->lastBlock = 0;
             this->blocked = false;
             return false; 
         }
@@ -184,6 +183,7 @@ struct Motor
     int startLimitSwitchPin;
 
     bool isAtEnd;
+    int stepMultiplyer = 18;
 
     Motor(int dirPin, int stepPin, int startPin, int stopPin)
     {
@@ -198,6 +198,8 @@ struct Motor
     {
         Serial.println("Init motor.. id:"+(String)id);
         pinMode(this->dirPin, OUTPUT);
+        digitalWrite(this->dirPin, LOW);
+
         pinMode(this->stepPin, OUTPUT);
 
         pinMode(this->endLimitSwitchPin, INPUT);
@@ -223,12 +225,12 @@ struct Motor
         Serial.println("Moving motor.. ");
 
         this->setDirection(Dir::vooruit);
-        for (int x = 0; x < 200; x++)
+
+        for (int x = 0; x < (200 * stepMultiplyer); x++)
         {
-            if (!endTouched())
+            if (!endTouched()){
                 this->moveStep();
-            else
-            {
+            } else{
                 Serial.println("Dino touches end of track");
                 this->isAtEnd = true;
                 return false;
@@ -296,7 +298,7 @@ struct LCD{
         this->driver = driver;
     }   
 
-    void clear(States newState){
+    void clear(GameStates newState){
         if (this->state == newState) return; 
 
         this->driver->setCursor(0,0);
@@ -305,6 +307,8 @@ struct LCD{
         this->driver->print("                ");
         
         this->state = newState;
+
+        delay(200);
     }
 
     void init(){
@@ -313,7 +317,7 @@ struct LCD{
         this->driver->backlight();
         this->driver->begin(2, 16);
 
-        this->clear(States::LOADING);
+        this->clear(GameStates::LOADING);
 
         this->driver->setCursor(0,0);
         this->driver->print("Loading game.. ");
@@ -322,7 +326,7 @@ struct LCD{
     }
 
     void startGame(){
-        this->clear(States::STARTING);
+        this->clear(GameStates::STARTING);
 
         this->driver->setCursor(0,0);
         this->driver->print("The Game Begins");
@@ -331,7 +335,7 @@ struct LCD{
     }
 
     void resetGame(){
-        this->clear(States::RESET);
+        this->clear(GameStates::RESET);
 
         this->driver->setCursor(0,0);
         this->driver->print("Resetting.. ");
@@ -339,36 +343,38 @@ struct LCD{
         this->driver->print("");
     }
 
-    void roundWinner(Player* winner, float winnerTime, float loserTime){
-        this->clear(States::ROUND_WINNER);
+    void roundWinner(Player* winner, Player* player0, Player* player1, float player0Time, float player1Time){
+        this->clear(GameStates::ROUND_WINNER);
 
         this->driver->setCursor(0,0);
-        this->driver->print("Round won by "+ (String)winner->id);
+        this->driver->print("Round won by "+ (String)(winner->id + 1));
         this->driver->setCursor(0,1);
-        this->driver->print((String)winnerTime + " vs " + (String)loserTime + " sec");
+        this->driver->print((player1Time/1000), 2);
+        this->driver->print(" vs ");
+        this->driver->print((player0Time/1000), 2);
     }
 
     void gameWinner(Player* winner, Player* loser){
-        this->clear(States::GAME_WINNER);
+        this->clear(GameStates::GAME_WINNER);
 
         this->driver->setCursor(0,0);
         this->driver->print("We have a winner!");
         this->driver->setCursor(0,1);
-        this->driver->print("Player "+ (String)winner->id +" has won!");
+        this->driver->print("Player "+ (String)(winner->id + 1) +" has won!");
     }
 
     void valsSpel(Player* cheater){
-        this->clear(States::VALS);
+        this->clear(GameStates::VALS);
 
         this->driver->setCursor(0,0);
-        this->driver->print("Player "+ (String)cheater->id + " deed ");
+        this->driver->print("Player "+ (String)(cheater->id + 1) + " deed ");
         this->driver->setCursor(0,1);
         this->driver->print("aan vals spel.. ");
     }
 
     // waiting for player there hand.. 
     void waiting(){
-        this->clear(States::WAITING);
+        this->clear(GameStates::WAITING);
 
         this->driver->setCursor(0,0);
         this->driver->print("Waiting for ");
@@ -377,7 +383,7 @@ struct LCD{
     }
 
     void noInput(){
-        this->clear(States::NO_INPUT);
+        this->clear(GameStates::NO_INPUT);
 
         this->driver->setCursor(0,0);
         this->driver->print("Timeout.. ");
@@ -392,9 +398,11 @@ struct GAME{
     LCD* Lcd;
     ResetBtn* Reset; 
     RGBLed* Rgb; 
+    bool gameWinner = false; 
 
     bool hasWinner; 
-    unsigned long startTime = 0; 
+    long startTime = 0; 
+    bool blocked = true; 
 
     GAME(Player* player0, Player* player1, LCD* Lcd, ResetBtn* Reset, RGBLed* Rgb){
         this->player0 = player0;
@@ -405,10 +413,12 @@ struct GAME{
     }
 
     void reset(bool hard){
+        this->Lcd->resetGame();
+        delay(2e3);
+
         this->player0->reset(hard);
         this->player1->reset(hard);
-
-        hasWinner = false;
+        hasWinner = false;       
     }
 
     long generateRandomWaitingTime(){
@@ -417,11 +427,15 @@ struct GAME{
 
     void loop(){
         
-        if (this->Reset->pressed){
-            this->reset(true);
-            this->Reset->reset(true);
-            return; 
-        }
+        // if (this->Reset->pressed){
+        //     this->reset(true);
+        //     this->Reset->reset(true);
+        //     this->Reset->pressed = false; 
+        //     return; 
+        // }
+
+        this->player0->Btn->lastPress = 0;
+        this->player0->Btn->lastPress = 0; 
 
         bool play1 = this->player1->Ldr->isBlocked();
         bool play0 = this->player0->Ldr->isBlocked();
@@ -434,10 +448,8 @@ struct GAME{
         this->Lcd->startGame();
         this->hasWinner = false;
 
-        
         unsigned long waitTime = this->generateRandomWaitingTime();
 
-       
         while (millis() < waitTime){
             this->Rgb->setRed();
             delay(300);
@@ -447,37 +459,53 @@ struct GAME{
         }
 
         this->Rgb->setBlue();
+        this->blocked = false; 
         this->startTime = millis();
+
+        unsigned long pressTime0 = this->player0->Btn->lastPress;
+        unsigned long pressTime1 = this->player1->Btn->lastPress;
+
+        // Serial.println("before: press0: " + (String)pressTime0 + " press1: " + (String)pressTime1);
 
         while (!hasWinner){
             
             if (this->Reset->pressed) break;
 
-            if ((startTime + 10e3) > millis()) {
+            // if ( (this->startTime + 10e3) > millis() ) {
                 
-                this->Lcd->noInput();
-                this->Rgb->setRed();
+            //     this->Lcd->noInput();
+            //     this->Rgb->setRed();
 
-                this->hasWinner = true; 
-                delay(5e3);
-                break; 
-            }
+            //     this->hasWinner = true; 
+            //     delay(5e3);
+            //     break; 
+            // }
             
             bool value0 = this->player0->Ldr->isBlocked();
             bool value1 = this->player1->Ldr->isBlocked();
 
-            unsigned long pressTime0 = this->player0->Btn->lastPress;
-            unsigned long pressTime1 = this->player1->Btn->lastPress;
+            pressTime0 = this->player0->Btn->lastPress;
+            pressTime1 = this->player1->Btn->lastPress;
 
+            // Serial.println("Value0: "+ (String)value0 + " time0: " + pressTime0);
+            // Serial.println("Value1: "+ (String)value1 + " time1: " + pressTime1);
+            Serial.println("LastBlock0: "+ (String)this->player0->Ldr->lastBlock);
+            Serial.println("LastBlock1: "+ (String)this->player1->Ldr->lastBlock);
 
             if ( (!value0 && !value1) && (pressTime0 != 0 && pressTime1 != 0)){
                 
-                if ((this->player0->Ldr->lastBlock < (this->startTime + 200) )){
+                if (((this->player0->Ldr->lastBlock + 200) < (this->startTime) )){
                     this->player0->score -= 1;
-                    return this->Lcd->valsSpel(this->player0);
-                }else if ((this->player1->Ldr->lastBlock < (this->startTime + 200) ) ){
+                    this->Lcd->valsSpel(this->player0);
+                    delay(5e3);
+                    return; 
+                }
+                
+                if (((this->player1->Ldr->lastBlock + 200) < (this->startTime) ) ){
                     this->player1->score -= 1;
-                    return this->Lcd->valsSpel(this->player1);
+                    this->Lcd->valsSpel(this->player1);
+                    delay(5e3);
+                    return;
                 }
 
                 if (pressTime0 < pressTime1){
@@ -485,29 +513,35 @@ struct GAME{
                     this->hasWinner = true;
                     this->player0->score += 1; 
 
-                    bool end = this->player0->motor->move();
-                    if (end){ 
-                       return this->Lcd->gameWinner(this->player0, this->player1); 
+                    bool end0 = !this->player0->motor->move();
+                    Serial.println("Motor0 is at end: " + (String)end0);
+                    if (end0){ 
+                       gameWinner = true; 
+                       this->Lcd->gameWinner(this->player0, this->player1);
+                       delay(5e3);
+                       return; 
                     }
-                    this->Lcd->roundWinner(this->player0, (millis() - pressTime0), (millis() - pressTime1)); 
-                    break;
+                    this->Lcd->roundWinner(this->player0, this->player0, this->player1, (millis() - pressTime0), (millis() - pressTime1));
+                    delay(5e3);
+                    return; 
                 }
 
                 this->hasWinner = true;
                 this->player0->score += 1;
-                bool end = this->player1->motor->move();
-                if (end){ 
-                    return this->Lcd->gameWinner(this->player1, this->player0); 
+                bool end1 = !this->player1->motor->move();
+                Serial.println("Motor1 is at end: " + (String)end1);
+                if (end1){ 
+                    gameWinner = true;
+                    this->Lcd->gameWinner(this->player1, this->player0); 
+                    delay(5e3);
+                    return; 
                 }
 
-                this->Lcd->roundWinner(this->player1, (millis() - pressTime1), (millis() - pressTime0));
-                break; 
+                this->Lcd->roundWinner(this->player1, this->player0, this->player1, (millis() - pressTime0), (millis() - pressTime1));
+                delay(5e3);
+                return; 
             }
         }
-
-        if (this->Reset->pressed) return this->loop();
-        delay(4e3);
-        this->hasWinner = false;
     }
 
 };
@@ -545,13 +579,14 @@ void BtnresetPin()
         Serial.println("resetten");
         Reset.lastState = Reset.pressed;
         Reset.pressed = true;
+        Game.gameWinner = false; 
         Reset.lastPress = millis();
     };
 }
 
 void Btn0()
 {
-    if (((Player0.Btn->lastPress + 1e3) < millis() )&& !Player0.Btn->pressed)
+    if (((Player0.Btn->lastPress + 5e3) < millis() ) && Player0.Btn->lastState != true && !Game.blocked )
     {
         Player0.Btn->lastState = Player0.Btn->pressed; 
         Serial.println("Player 0 pressed");
@@ -562,13 +597,24 @@ void Btn0()
 
 void Btn1()
 {
-    if (((Player1.Btn->lastPress + 1e3) < millis()) && !Player1.Btn->pressed)
+    if (((Player1.Btn->lastPress + 2e3) < millis()) && Player1.Btn->lastState != true && !Game.blocked )
     {
         Player1.Btn->lastState = Player1.Btn->pressed; 
         Serial.println("Player 1 pressed");
         Player1.Btn->lastPress = millis();
         Player1.Btn->pressed = true; 
     };
+}
+
+
+void dance(Player* player){
+    player->motor->setDirection(Dir::achteruit);
+    player->motor->moveStep();
+    player->motor->moveStep();
+
+    player->motor->setDirection(Dir::vooruit);
+    player->motor->moveStep();
+    player->motor->moveStep();
 }
 
 void checkMotors(Motor* motor0, Motor* motor1){
@@ -603,7 +649,6 @@ void checkMotors(Motor* motor0, Motor* motor1){
 void resetMotors(Motor* motor0, Motor* motor1){
     motor0->setDirection(Dir::achteruit);
     motor1->setDirection(Dir::achteruit);
-
 
     while (!motor0->startTouched() || !motor0->startTouched()){
 
@@ -643,8 +688,39 @@ void setup()
 void loop()
 {   
 
+   
+    // Serial.println("End loop");
+    if (Reset.pressed){
+        Reset.pressed = false; 
+        return Game.reset(true);
+    }
+
+    if (Game.gameWinner) return; 
+
     Game.loop();
-    // while (!Motor0.isAtEnd || !Motor1.isAtEnd){
+
+    Game.hasWinner = false;
+    
+    Game.player0->Btn->lastPress = 0;
+    Game.player1->Btn->lastPress = 0; 
+
+    Game.player0->Btn->lastState = false;
+    Game.player1->Btn->lastState = false; 
+
+    Game.player0->Ldr->lastBlock = 0;
+    Game.player1->Ldr->lastBlock = 0;
+
+    Game.blocked = true; 
+
+    // Player0.Btn->reset(false);
+    // Player0.Btn->reset(false);
+    // Player0.Ldr->reset(false);
+    // Player0.Ldr->reset(false);
+
+    // this->player1->Btn->reset(false);
+    // this->player0->Ldr->reset(false);
+    // this->player1->Ldr->reset(false);
+    // // while (!Motor0.isAtEnd || !Motor1.isAtEnd){
     //     Motor0.move();
     //     Motor0.move();
     //     Motor1.move();
