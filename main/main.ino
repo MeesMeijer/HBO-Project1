@@ -5,6 +5,42 @@
 #include <LiquidCrystal_I2C.h>
 #include <string.h>
 
+int coun;
+bool dir=0;
+int del;
+int c=1912;
+int cf=1805;
+int d= 1703;
+int df=1607;
+int e=1517;
+int f=1431;
+int ff=1351;
+int g= 1275;
+int gf=1203;
+int a=1136;
+int af=1072;
+int b=1012;
+int c1=floor(c/2);
+int cf1=floor(cf/2);
+int d1=floor(d/2);
+int df1=floor(df/2);
+int e1=floor(e/2);
+int f1=floor(1431/2);
+int ff1=floor(1351/2);
+int g1= floor(1275/2);
+int gf1=floor(1203/2);
+int a1=floor(1136/2);
+int af1=floor(1072/2);
+int b1=floor(1012/2);
+int e0=e*2;
+int g0=g*2;
+int b0=b*2;
+int af0=af*2;
+int a0=a*2;
+int f0=f*2;
+int use=180;
+int tempo=120;
+int oct=5;
 
 enum Dir
 {
@@ -240,6 +276,24 @@ struct Motor
         return true;
     }
 
+    bool moveBack(){
+        Serial.println("Moving motor.. ");
+
+        this->setDirection(Dir::achteruit);
+
+        for (int x = 0; x < (200 * stepMultiplyer); x++)
+        {
+            if (!startTouched()){
+                this->moveStep();
+            } else{
+                Serial.println("Dino touches start of track");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     bool endTouched() { return digitalRead(this->endLimitSwitchPin); }
 
     bool startTouched() { return digitalRead(this->startLimitSwitchPin); };
@@ -347,7 +401,7 @@ struct LCD{
         this->clear(GameStates::ROUND_WINNER);
 
         this->driver->setCursor(0,0);
-        this->driver->print("Round won by "+ (String)(winner->id + 1));
+        this->driver->print("Round won by " + (String)(winner->id + 1));
         this->driver->setCursor(0,1);
         this->driver->print((player1Time/1000), 2);
         this->driver->print(" vs ");
@@ -368,6 +422,7 @@ struct LCD{
 
         this->driver->setCursor(0,0);
         this->driver->print("Player "+ (String)(cheater->id + 1) + " deed ");
+        
         this->driver->setCursor(0,1);
         this->driver->print("aan vals spel.. ");
     }
@@ -391,6 +446,26 @@ struct LCD{
         this->driver->print("# - # - # - #");
     }
 };
+
+
+
+
+void danceWinner(Motor* motor){    
+    motor->setDirection(Dir::achteruit);
+
+    int steps = 400;
+    for (int i = 0.0; i < steps; i++){
+        if (!motor->endTouched() && !motor->startTouched()){
+            motor->moveStep();
+        }
+    }
+
+    Serial.println("DANCING..");
+
+    oct = 4; 
+    dance(motor);
+}
+
 
 struct GAME{
     Player *player0; 
@@ -418,6 +493,7 @@ struct GAME{
 
         this->player0->reset(hard);
         this->player1->reset(hard);
+
         hasWinner = false;       
     }
 
@@ -470,16 +546,6 @@ struct GAME{
         while (!hasWinner){
             
             if (this->Reset->pressed) break;
-
-            // if ( (this->startTime + 10e3) > millis() ) {
-                
-            //     this->Lcd->noInput();
-            //     this->Rgb->setRed();
-
-            //     this->hasWinner = true; 
-            //     delay(5e3);
-            //     break; 
-            // }
             
             bool value0 = this->player0->Ldr->isBlocked();
             bool value1 = this->player1->Ldr->isBlocked();
@@ -489,20 +555,27 @@ struct GAME{
 
             // Serial.println("Value0: "+ (String)value0 + " time0: " + pressTime0);
             // Serial.println("Value1: "+ (String)value1 + " time1: " + pressTime1);
-            Serial.println("LastBlock0: "+ (String)this->player0->Ldr->lastBlock);
-            Serial.println("LastBlock1: "+ (String)this->player1->Ldr->lastBlock);
+            // Serial.println("LastBlock0: "+ (String)this->player0->Ldr->lastBlock);
+            // Serial.println("LastBlock1: "+ (String)this->player1->Ldr->lastBlock);
 
             if ( (!value0 && !value1) && (pressTime0 != 0 && pressTime1 != 0)){
                 
                 if (((this->player0->Ldr->lastBlock + 200) < (this->startTime) )){
                     this->player0->score -= 1;
+
+                    this->player0->motor->moveBack();
+                    
                     this->Lcd->valsSpel(this->player0);
+
                     delay(5e3);
                     return; 
                 }
                 
                 if (((this->player1->Ldr->lastBlock + 200) < (this->startTime) ) ){
                     this->player1->score -= 1;
+
+                    this->player1->motor->moveBack();
+                    
                     this->Lcd->valsSpel(this->player1);
                     delay(5e3);
                     return;
@@ -514,36 +587,37 @@ struct GAME{
                     this->player0->score += 1; 
 
                     bool end0 = !this->player0->motor->move();
-                    Serial.println("Motor0 is at end: " + (String)end0);
+                    // Serial.println("Motor0 is at end: " + (String)end0);
                     if (end0){ 
                        gameWinner = true; 
                        this->Lcd->gameWinner(this->player0, this->player1);
-                       delay(5e3);
-                       return; 
+                       danceWinner(this->player0->motor);
+                       delay(3e3);
+                       return;
                     }
                     this->Lcd->roundWinner(this->player0, this->player0, this->player1, (millis() - pressTime0), (millis() - pressTime1));
-                    delay(5e3);
+                    delay(3e3);
                     return; 
                 }
 
                 this->hasWinner = true;
                 this->player0->score += 1;
                 bool end1 = !this->player1->motor->move();
-                Serial.println("Motor1 is at end: " + (String)end1);
+                // Serial.println("Motor1 is at end: " + (String)end1);
                 if (end1){ 
                     gameWinner = true;
                     this->Lcd->gameWinner(this->player1, this->player0); 
+                    danceWinner(this->player1->motor);
                     delay(5e3);
                     return; 
                 }
 
                 this->Lcd->roundWinner(this->player1, this->player0, this->player1, (millis() - pressTime0), (millis() - pressTime1));
-                delay(5e3);
+                delay(3e3);
                 return; 
             }
         }
     }
-
 };
 
 RGBLed RGB(7, 5, 6);
@@ -553,16 +627,16 @@ LiquidCrystal_I2C lcd(0x27, 20, 21);
 LCD Lcd(&lcd);
 
 // De motoren
-Motor Motor1(11, 34, 26, 27);
-Motor Motor0(12, 35, 28, 29);
+Motor Motor0(11, 34, 26, 27);
+Motor Motor1(12, 35, 28, 29);
 
 // de dome push buttons
-PushBtn push1(18, 40);
-PushBtn push0(3, 41);
+PushBtn push0(18, 40);
+PushBtn push1(3, 41);
 
 // De LDr (light dependent resistor)
-LDRSensor LDR1(A1);
-LDRSensor LDR0(A0);
+LDRSensor LDR0(A1);
+LDRSensor LDR1(A0);
 
 // beide players boven en onder
 Player Player1(1, &Motor1, &LDR1, &push1);
@@ -607,15 +681,86 @@ void Btn1()
 }
 
 
-void dance(Player* player){
-    player->motor->setDirection(Dir::achteruit);
-    player->motor->moveStep();
-    player->motor->moveStep();
-
-    player->motor->setDirection(Dir::vooruit);
-    player->motor->moveStep();
-    player->motor->moveStep();
+void note(Motor* motor, int num,long dur) {
+    del=(num*oct)/10;
+    dir=!dir;
+    digitalWrite(motor->dirPin, dir);
+    coun=floor((dur*5*tempo)/del);
+    for(int x = 0; x < coun; x++) {
+        digitalWrite(motor->stepPin,HIGH);
+        delayMicroseconds(del);
+        digitalWrite(motor->stepPin,LOW);
+        delayMicroseconds(del);
+    }
 }
+
+void pa(int durp){
+    int ker=floor(durp/100)*tempo;
+    delay(ker);
+}
+
+void dance(Motor* motor){
+    // Rob scallon Rain.
+    for (int i = 0; i < 3; i++){
+        note(motor, d,100);
+        pa(use);
+        note(motor,f,100);
+        pa(use);
+        note(motor,c1,100);
+        pa(use);
+        note(motor,f,100);
+        pa(use);
+    }
+    note(motor,c1,100);
+    pa(use);
+    note(motor,c1,100);
+    pa(use);
+    note(motor,af,100);
+    pa(use);
+    note(motor,a,100);
+    pa(use);
+    for (int i = 0; i < 3; i++){
+        note(motor,c,100);
+        pa(use);
+        note(motor,e,100);
+        pa(use);
+        note(motor,af,100);
+        pa(use);
+        note(motor,e,100);
+        pa(use);
+    }
+    note(motor,af,100);
+    pa(use);
+    note(motor,af,100);
+    pa(use);
+    note(motor,a,100);
+    pa(use);
+    note(motor,f,100);
+    pa(use);
+    for (int i = 0; i < 3; i++){
+        note(motor,d,100);
+        pa(use);
+        note(motor,f,100);
+        pa(use);
+        note(motor,af,100);
+        pa(use);
+        note(motor,f,100);
+        pa(use);
+    }
+    for (int i = 0; i < 3; i++){
+        note(motor, af0,100);
+        pa(use);
+        note(motor, d,100);
+        pa(use);
+        note(motor, f,100);
+        pa(use);
+        note(motor, a,100);
+        pa(use);
+    }
+}
+
+
+
 
 void checkMotors(Motor* motor0, Motor* motor1){
     motor0->reset(true);
@@ -650,7 +795,7 @@ void resetMotors(Motor* motor0, Motor* motor1){
     motor0->setDirection(Dir::achteruit);
     motor1->setDirection(Dir::achteruit);
 
-    while (!motor0->startTouched() || !motor0->startTouched()){
+    while (!motor0->startTouched() && !motor0->startTouched()){
 
         if (!motor0->startTouched()) digitalWrite(motor0->stepPin, HIGH);
         if (!motor1->startTouched()) digitalWrite(motor1->stepPin, HIGH);
@@ -687,9 +832,7 @@ void setup()
 
 void loop()
 {   
-
-   
-    // Serial.println("End loop");
+    // ------ 
     if (Reset.pressed){
         Reset.pressed = false; 
         return Game.reset(true);
@@ -711,6 +854,11 @@ void loop()
     Game.player1->Ldr->lastBlock = 0;
 
     Game.blocked = true; 
+
+    // ------ 
+
+
+
 
     // Player0.Btn->reset(false);
     // Player0.Btn->reset(false);
